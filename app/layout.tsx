@@ -13,8 +13,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Stravart | Routes that look like something",
-  description: "Turn an idea into a real, rideable route.",
+  metadataBase: new URL("https://RouteBuddy.vercel.app"),
+  title: { default: "RouteBuddy | Routes that look like something", template: "%s | RouteBuddy" },
+  description: "Turn an idea into a route concept you can export and share.",
+  applicationName: "RouteBuddy",
+  openGraph: { title: "RouteBuddy | Routes that look like something", description: "Turn an idea into a route concept you can export and share.", type: "website" },
+  twitter: { card: "summary", title: "RouteBuddy", description: "Routes that look like something." },
 };
 
 export default function RootLayout({
