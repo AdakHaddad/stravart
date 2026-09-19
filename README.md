@@ -1,4 +1,10 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+RouteBuddy turns a location and an art prompt into a walkable GPX route. It uses OpenRouteService (ORS) for server-side geocoding and pedestrian routing, so routes are generated from real map data instead of fixed demo coordinates.
+
+## Production configuration
+
+Create an ORS API key and set `ORS_API_KEY` in your hosting provider's server-side environment settings. Do not prefix it with `NEXT_PUBLIC_`, commit a token, or create an `.env` file. RouteBuddy proxies ORS through same-origin Route Handlers, so the key never reaches a browser bundle.
+
+Without that variable, the app stays safe: live place search and route generation return a configuration error without exposing a credential.
 
 ## Getting Started
 
