@@ -1,7 +1,7 @@
 "use client";
 
-import { Map as MapLibreMap, type GeoJSONSource } from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
+import mapboxgl, { Map as MapboxMap, type GeoJSONSource } from "mapbox-gl";
+import "mapbox-gl/dist/mapbox-gl.css";
 import { useEffect, useRef, useState } from "react";
 
 type Point = [number, number];
@@ -16,7 +16,7 @@ function routeFeature(points: Point[]) {
 
 export function RouteMapCanvas({ center, points }: { center: Point; points: Point[] }) {
   const element = useRef<HTMLDivElement>(null);
-  const map = useRef<MapLibreMap | null>(null);
+  const map = useRef<MapboxMap | null>(null);
   const loaded = useRef(false);
   const initialCenter = useRef(center);
   const latestPoints = useRef(points);
@@ -30,11 +30,26 @@ export function RouteMapCanvas({ center, points }: { center: Point; points: Poin
   // effects below so prop changes never destroy and recreate the map.
   useEffect(() => {
     if (!element.current || map.current) return;
-    let instance: MapLibreMap;
+    const token =
+      process.env.NEXT_PUBLIC_MAPBOX_TOKEN ||
+      process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN ||
+      process.env.MAPBOX_PUBLIC_TOKEN;
+
+    if (!token) {
+      window.setTimeout(
+        () => setProblem("Mapbox public token is missing. Set NEXT_PUBLIC_MAPBOX_TOKEN or MAPBOX_PUBLIC_TOKEN."),
+        0
+      );
+      return;
+    }
+
+    mapboxgl.accessToken = token;
+
+    let instance: MapboxMap;
     try {
-      instance = new MapLibreMap({
+      instance = new MapboxMap({
         container: element.current,
-        style: "https://tiles.openfreemap.org/styles/liberty",
+        style: "mapbox://styles/mapbox/outdoors-v12",
         center: initialCenter.current,
         zoom: 13,
         interactive: false,
@@ -103,7 +118,7 @@ export function RouteMapCanvas({ center, points }: { center: Point; points: Poin
   }, [points]);
 
   return (
-    <div className="map-canvas" ref={element} aria-label="Interactive OpenStreetMap route map">
+    <div className="map-canvas" ref={element} aria-label="Interactive Mapbox route map">
       {problem ? (
         <div
           style={{
@@ -118,7 +133,7 @@ export function RouteMapCanvas({ center, points }: { center: Point; points: Poin
           }}
           role="alert"
         >
-          {problem} Check your connection or whether tiles.openfreemap.org is blocked.
+          {problem}
         </div>
       ) : null}
     </div>

@@ -4,6 +4,8 @@ RouteBuddy turns a location and an art prompt into a walkable GPX route. It uses
 
 Create an ORS API key and set `ORS_API_KEY` in your hosting provider's server-side environment settings. Do not prefix it with `NEXT_PUBLIC_`, commit a token, or create an `.env` file. RouteBuddy proxies ORS through same-origin Route Handlers, so the key never reaches a browser bundle.
 
+For the interactive map, provide your Mapbox public token via `NEXT_PUBLIC_MAPBOX_TOKEN` or `MAPBOX_PUBLIC_TOKEN`.
+
 Without that variable, the app stays safe: live place search and route generation return a configuration error without exposing a credential.
 
 ## Getting Started
