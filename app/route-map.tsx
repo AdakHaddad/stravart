@@ -14,13 +14,27 @@ function routeFeature(points: Point[]) {
   } as const;
 }
 
+function fitRoute(instance: MapboxMap, points: Point[], duration: number) {
+  if (points.length < 2) return;
+  const bounds = points.reduce(
+    (box, point) => box.extend(point),
+    new mapboxgl.LngLatBounds(points[0], points[0])
+  );
+  instance.fitBounds(bounds, { padding: 48, maxZoom: 15, duration });
+}
+
 export function RouteMapCanvas({ center, points }: { center: Point; points: Point[] }) {
   const element = useRef<HTMLDivElement>(null);
   const map = useRef<MapboxMap | null>(null);
   const loaded = useRef(false);
   const initialCenter = useRef(center);
+  const latestCenter = useRef(center);
   const latestPoints = useRef(points);
   const [problem, setProblem] = useState<string | null>(null);
+
+  useEffect(() => {
+    latestCenter.current = center;
+  }, [center]);
 
   useEffect(() => {
     latestPoints.current = points;
@@ -30,10 +44,7 @@ export function RouteMapCanvas({ center, points }: { center: Point; points: Poin
   // effects below so prop changes never destroy and recreate the map.
   useEffect(() => {
     if (!element.current || map.current) return;
-    const token =
-      process.env.NEXT_PUBLIC_MAPBOX_TOKEN ||
-      process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN ||
-      process.env.MAPBOX_PUBLIC_TOKEN;
+    const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
     if (!token) {
       window.setTimeout(
@@ -65,6 +76,9 @@ export function RouteMapCanvas({ center, points }: { center: Point; points: Poin
     instance.on("load", () => {
       loaded.current = true;
       setProblem(null);
+      // A search can finish before tiles load; apply the latest center once
+      // the map exists instead of leaving the initial view in place.
+      instance.jumpTo({ center: latestCenter.current });
       instance.addSource("route", {
         type: "geojson",
         data: routeFeature(latestPoints.current),
@@ -82,6 +96,7 @@ export function RouteMapCanvas({ center, points }: { center: Point; points: Poin
         paint: { "line-color": "#10221f", "line-width": 6, "line-opacity": 0.92 },
       });
       instance.resize();
+      fitRoute(instance, latestPoints.current, 0);
     });
     instance.on("error", (event) => {
       const detail = (event as { error?: { message?: string } })?.error?.message;
@@ -115,6 +130,7 @@ export function RouteMapCanvas({ center, points }: { center: Point; points: Poin
     if (!loaded.current || !map.current) return;
     const source = map.current.getSource("route") as GeoJSONSource | undefined;
     source?.setData(routeFeature(points));
+    fitRoute(map.current, points, 600);
   }, [points]);
 
   return (

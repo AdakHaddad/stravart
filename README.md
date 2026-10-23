@@ -1,4 +1,4 @@
-RouteBuddy turns a location and an art prompt into a walkable GPX route. It uses OpenRouteService (ORS) for server-side geocoding and pedestrian routing, so routes are generated from real map data instead of fixed demo coordinates.
+RouteBuddy turns a location and an art prompt into a walkable GPX route. Place search uses Photon (OpenStreetMap data), with OpenRouteService (ORS) Pelias as a fallback; pedestrian routing uses ORS. Both run server-side, so routes are generated from real map data instead of fixed demo coordinates.
 
 ## Production configuration
 
@@ -6,7 +6,7 @@ Create an ORS API key and set `ORS_API_KEY` in your hosting provider's server-si
 
 For the interactive map, provide your Mapbox public token via `NEXT_PUBLIC_MAPBOX_TOKEN` or `MAPBOX_PUBLIC_TOKEN`.
 
-Without that variable, the app stays safe: live place search and route generation return a configuration error without exposing a credential.
+Without ORS, route generation returns a configuration error while Photon place search keeps working. Without a Mapbox token, the map falls back to a static art preview. No credential is exposed in either case.
 
 ## Getting Started
 

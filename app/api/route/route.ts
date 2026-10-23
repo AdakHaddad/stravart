@@ -17,8 +17,17 @@ export async function POST(request: Request) {
     method: "POST", headers: { Authorization: apiKey, "Content-Type": "application/json" },
     body: JSON.stringify({ coordinates, instructions: false }), signal: AbortSignal.timeout(15_000),
   });
+  if (upstream.status === 429) return Response.json({ error: "Street routing is busy. Try again in a moment." }, { status: 429 });
   if (!upstream.ok) return Response.json({ error: "Walkable route is unavailable." }, { status: 502 });
   const feature = (await upstream.json()).features?.[0];
   if (!Array.isArray(feature?.geometry?.coordinates)) return Response.json({ error: "No walkable route found." }, { status: 422 });
-  return Response.json({ coordinates: feature.geometry.coordinates }, { headers: { "Cache-Control": "no-store" } });
+  const summary = feature.properties?.summary;
+  return Response.json(
+    {
+      coordinates: feature.geometry.coordinates,
+      distance: typeof summary?.distance === "number" ? summary.distance : undefined,
+      duration: typeof summary?.duration === "number" ? summary.duration : undefined,
+    },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 }

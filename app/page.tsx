@@ -5,7 +5,9 @@ import { RouteMapCanvas } from "./route-map";
 
 type Art = "heart" | "bolt" | "flower" | "star" | "wave";
 type Point = [number, number];
+type GeneratedRoute = { coordinates: Point[]; distance: number; duration?: number; kind: Art; location: string; target: number };
 const defaultCenter: Point = [106.8456, -6.2088];
+const FIT_TOLERANCE = .1;
 const art: Record<Art, { name: string; path: string; points: Point[] }> = {
   heart: { name: "Heart loop", path: "M238 385 C92 306 78 164 155 129 C201 109 232 139 250 170 C270 135 300 108 347 128 C424 162 405 307 262 385 C254 390 246 390 238 385Z", points: [[0,.8],[-.75,.3],[-.6,-.4],[0,-.1],[.6,-.4],[.75,.3],[0,.8]] },
   bolt: { name: "Electric bolt", path: "M287 66 L131 245 H218 L189 401 L377 189 H285 Z", points: [[.25,-.85],[-.75,-.05],[-.25,-.05],[-.45,.8],[.85,-.35],[.2,-.35],[.25,-.85]] },
@@ -13,20 +15,49 @@ const art: Record<Art, { name: string; path: string; points: Point[] }> = {
   star: { name: "Star loop", path: "M250 55 L294 190 L437 190 L321 273 L365 414 L250 329 L135 414 L179 273 L63 190 L206 190 Z", points: [[0,-.85],[.25,-.2],[.9,-.2],[.37,.2],[.55,.85],[0,.48],[-.55,.85],[-.37,.2],[-.9,-.2],[-.25,-.2],[0,-.85]] },
   wave: { name: "Wave loop", path: "M70 275 C140 125 220 125 290 275 S440 425 460 210 C390 360 310 360 235 210 S90 65 40 235", points: [[-.9,.2],[-.6,-.55],[-.2,-.55],[.15,.2],[.5,.65],[.85,-.1],[.45,.35],[.05,.35],[-.35,-.25],[-.75,-.25],[-.9,.2]] },
 };
+const artWords: Record<Art, string[]> = {
+  heart: ["heart", "love", "valentine", "romance"],
+  bolt: ["bolt", "lightning", "thunder", "electric", "energy", "zap"],
+  flower: ["flower", "bloom", "blossom", "rose", "petal"],
+  star: ["star", "constellation", "night sky"],
+  wave: ["wave", "ocean", "sea", "water", "surf"],
+};
 const chooseArt = (idea: string, fallback: Art): Art => {
   const text = idea.toLowerCase();
-  if (text.includes("lightning") || text.includes("bolt")) return "bolt";
-  if (text.includes("flower") || text.includes("bloom")) return "flower";
-  if (text.includes("star")) return "star";
-  if (text.includes("wave") || text.includes("ocean")) return "wave";
-  return text.includes("heart") || text.includes("love") ? "heart" : fallback;
+  for (const [kind, words] of Object.entries(artWords) as [Art, string[]][]) {
+    if (words.some((word) => text.includes(word))) return kind;
+  }
+  return fallback;
 };
-function waypoints(kind: Art, center: Point, distance: number): Point[] {
-  const scale = .006 + distance * .00085;
+function waypoints(kind: Art, center: Point, distance: number, scale = .006 + distance * .00085): Point[] {
   return art[kind].points.map(([x, y]) => [center[0] + x * scale / Math.cos(center[1] * Math.PI / 180), center[1] + y * scale]);
+}
+function routeLength(points: Point[]): number {
+  let total = 0;
+  for (let index = 1; index < points.length; index++) {
+    const [lon1, lat1] = points[index - 1]; const [lon2, lat2] = points[index];
+    const dLat = (lat2 - lat1) * Math.PI / 180; const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+    total += 2 * 6371000 * Math.asin(Math.sqrt(a));
+  }
+  return total;
+}
+function ArtPreview({ center, points }: { center: Point; points: Point[] }) {
+  if (points.length < 2) return null;
+  const lonScale = Math.cos(center[1] * Math.PI / 180);
+  const offsets = points.map(([lon, lat]) => [(lon - center[0]) * lonScale, lat - center[1]] as const);
+  const extent = Math.max(...offsets.flatMap(([x, y]) => [Math.abs(x), Math.abs(y)]), 0.00001);
+  const coords = offsets.map(([x, y]) => `${(50 + x / extent * 34).toFixed(2)},${(50 - y / extent * 34).toFixed(2)}`).join(" ");
+  const [startX, startY] = coords.split(" ")[0].split(",");
+  return <svg className="map-fallback" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+    <polyline points={coords} fill="none" stroke="#f7f6ee" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" />
+    <polyline points={coords} fill="none" stroke="#10221f" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+    <circle cx={startX} cy={startY} r="2.6" fill="#d8ff40" stroke="#10221f" strokeWidth="1.2" />
+  </svg>;
 }
 function Map({ kind, center, points }: { kind: Art; center: Point; points: Point[] }) {
   return <div className="map" aria-label={`${art[kind].name} route preview`}>
+    <ArtPreview center={center} points={points} />
     <RouteMapCanvas center={center} points={points} />
     <div className="map-credit">© OpenStreetMap contributors</div>
   </div>;
@@ -35,30 +66,54 @@ const xmlEscapes: Record<string, string> = { "<": "&lt;", ">": "&gt;", "&": "&am
 const xml = (value: string) => value.replace(/[<>&'\"]/g, (character) => xmlEscapes[character]);
 function downloadGpx(name: string, points: Point[], distance: number, location: string) {
   const tracks = points.map(([lon, lat]) => `    <trkpt lat="${lat.toFixed(6)}" lon="${lon.toFixed(6)}" />`).join("\n");
-  const body = `<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="RouteBuddy" xmlns="http://www.topografix.com/GPX/1/1"><metadata><name>${xml(name)}</name><desc>${distance} km near ${xml(location)}</desc></metadata><trk><name>${xml(name)}</name><trkseg>\n${tracks}\n</trkseg></trk></gpx>`;
+  const body = `<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="RouteBuddy" xmlns="http://www.topografix.com/GPX/1/1"><metadata><name>${xml(name)}</name><desc>${distance.toFixed(1)} km near ${xml(location)}</desc></metadata><trk><name>${xml(name)}</name><trkseg>\n${tracks}\n</trkseg></trk></gpx>`;
   const url = URL.createObjectURL(new Blob([body], { type: "application/gpx+xml" })); const link = document.createElement("a"); link.href = url; link.download = `RouteBuddy-${name.replaceAll(" ", "-")}.gpx`; link.click(); URL.revokeObjectURL(url);
 }
 
 export default function Home() {
-  const [idea, setIdea] = useState(""); const [kind, setKind] = useState<Art>("heart"); const [location, setLocation] = useState("Jakarta, Indonesia"); const [center, setCenter] = useState<Point>(defaultCenter); const [distance, setDistance] = useState(6); const [route, setRoute] = useState<Point[]>([]); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [message, setMessage] = useState("");
+  const [idea, setIdea] = useState(""); const [kind, setKind] = useState<Art>("heart"); const [location, setLocation] = useState("Jakarta, Indonesia"); const [center, setCenter] = useState<Point>(defaultCenter); const [distance, setDistance] = useState(6); const [generated, setGenerated] = useState<GeneratedRoute | null>(null); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [message, setMessage] = useState("");
   const previews = useMemo(() => waypoints(kind, center, distance), [kind, center, distance]);
-  const ready = route.length > 0;
+  const ready = generated !== null;
+  const resultKind = generated?.kind ?? kind;
+  const resultPoints = generated?.coordinates ?? previews;
+  const resultLocation = generated?.location ?? location;
+  const resultDistance = generated ? generated.distance / 1000 : distance;
   async function generate() {
     if (!idea.trim()) return setError("Describe the art you want to make, or choose a quick pick.");
+    if (!location.trim()) return setError("Search a city, address, or landmark first.");
     setBusy(true); setError(""); setMessage("");
     try {
-      const lookup = await fetch(`/api/geocode?q=${encodeURIComponent(location)}`); if (!lookup.ok) throw new Error("search");
+      const lookup = await fetch(`/api/geocode?q=${encodeURIComponent(location.trim())}`); if (!lookup.ok) throw new Error("search");
       const place = await lookup.json() as { center?: Point; location?: string }; if (!place.center) return setError("We couldn’t find that place. Try a more specific city, address, or landmark.");
-      const nextCenter = place.center; const nextKind = chooseArt(idea, kind); const points = waypoints(nextKind, nextCenter, distance);
-      const direction = await fetch("/api/route", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ coordinates: points }) }); if (!direction.ok) throw new Error("directions");
-      const snapped = (await direction.json()).coordinates as Point[] | undefined; if (!snapped?.length) throw new Error("empty");
-      setCenter(nextCenter); setLocation(place.location || location); setKind(nextKind); setRoute(snapped); setMessage("Street-snapped route ready. Review it before you go."); document.getElementById("routes")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    } catch { setError("We couldn’t build a walkable route there. Try a denser area, a shorter distance, or another art prompt."); } finally { setBusy(false); }
+      const nextCenter = place.center; const nextKind = chooseArt(idea, kind); const nextLocation = place.location || location;
+      setCenter(nextCenter); setLocation(nextLocation);
+      const targetMeters = distance * 1000;
+      let scale = .006 + distance * .00085;
+      let best: { coordinates: Point[]; distance: number; duration?: number } | null = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const points = waypoints(nextKind, nextCenter, distance, scale);
+        const direction = await fetch("/api/route", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ coordinates: points }) });
+        if (!direction.ok) { if (best) break; throw new Error(direction.status === 429 ? "busy" : "directions"); }
+        const payload = await direction.json() as { coordinates?: Point[]; distance?: number; duration?: number };
+        if (!payload.coordinates?.length) { if (best) break; throw new Error("empty"); }
+        const actual = typeof payload.distance === "number" && payload.distance > 0 ? payload.distance : routeLength(payload.coordinates);
+        if (!best || Math.abs(actual - targetMeters) < Math.abs(best.distance - targetMeters)) best = { coordinates: payload.coordinates, distance: actual, duration: payload.duration };
+        if (Math.abs(actual - targetMeters) <= targetMeters * FIT_TOLERANCE) break;
+        const factor = targetMeters / actual;
+        if (!Number.isFinite(factor)) break;
+        scale *= Math.min(2.2, Math.max(.45, factor));
+      }
+      if (!best) throw new Error("empty");
+      setKind(nextKind); setGenerated({ ...best, kind: nextKind, location: nextLocation, target: distance });
+      const actualKm = best.distance / 1000;
+      setMessage(Math.abs(actualKm - distance) / distance <= FIT_TOLERANCE ? "Street-snapped route ready. Review it before you go." : `Closest walkable fit is ${actualKm.toFixed(1)} km for a ${distance} km target.`);
+      document.getElementById("routes")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (cause) { setError(cause instanceof Error && cause.message === "busy" ? "Street routing is busy right now. Wait a few seconds and try again." : "We couldn’t build a walkable route there. Try a denser area, a shorter distance, or another art prompt."); } finally { setBusy(false); }
   }
   const submit = (event: FormEvent) => { event.preventDefault(); void generate(); };
   return <main><header className="topbar"><a className="brand" href="#top"><span className="brand-mark">S</span><span>RouteBuddy</span></a><nav><a href="#how">How it works</a><a href="#routes">Your route</a></nav></header>
-    <section className="hero" id="top"><div className="hero-copy"><p className="kicker"><span className="pulse" /> STREET-LEVEL ROUTE ART</p><h1>Search a place.<br /><em>Make your mark.</em></h1><p className="lede">Turn an art prompt into a walkable route on a real map. Search any city, address, or landmark, then inspect and export the result.</p><div className="hero-notes"><span>Live place search</span><span>Street-snapped routes</span><span>GPX export</span></div></div><div className="hero-map"><Map kind={kind} center={center} points={route.length ? route : previews} /></div></section>
-    <section className="studio"><div className="studio-heading"><div><p className="section-label">01 / SEARCH & DRAW</p><h2>What do you want<br />to draw today?</h2></div><p>Choose a place, describe the art, and we’ll try to fit it to walkable streets.</p></div><form className="creator-grid" onSubmit={submit} noValidate><div className="idea-panel"><label htmlFor="idea">Art prompt</label><div className="idea-field"><input id="idea" value={idea} onChange={(e) => { setIdea(e.target.value); setError(""); }} aria-invalid={Boolean(error)} placeholder="Try “heart”, “star”, “wave”..." /><button type="submit" aria-label="Generate route" disabled={busy}>↗</button></div>{error && <p className="form-error" role="alert">{error}</p>}<div className="quick-picks"><span>Quick picks</span>{(Object.keys(art) as Art[]).map((item) => <button type="button" className={kind === item ? "picked" : ""} onClick={() => { setKind(item); setIdea(item); }} key={item}>{art[item].name}</button>)}</div></div><div className="settings-panel"><div className="setting-title"><label htmlFor="distance">Target distance</label><strong>{distance}.0 km</strong></div><input className="distance" id="distance" type="range" min="3" max="15" value={distance} onChange={(e) => setDistance(Number(e.target.value))} /><div className="range-labels"><span>3 km</span><span>15 km</span></div><div className="location"><span className="pin">◎</span><div><label htmlFor="location">SEARCH ON THE MAP</label><input id="location" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="City, address, or landmark" /></div></div><button className="primary" type="submit" disabled={busy}>{busy ? "Finding streets…" : "Generate walkable route"}<span>→</span></button><p className="token-note">Routing is secured server-side; no provider key is exposed in your browser.</p></div></form></section>
-    <section className="result" id="routes"><div className="result-top"><div><p className="section-label">02 / YOUR ROUTE</p><h2>{ready ? "Your route is ready." : "Ready when you are."}</h2></div><p>{ready ? `We fitted ${art[kind].name.toLowerCase()} to streets near ${location}.` : "Search a location and choose an art prompt to generate a walkable route."}</p></div>{message && <p className="action-message" role="status">{message}</p>}<div className="route-result"><div className="result-map"><Map kind={kind} center={center} points={route.length ? route : previews} /></div><div className="route-details"><span className="status"><i /> {ready ? "ROUTE READY" : "WAITING FOR YOUR SEARCH"}</span><h3>{art[kind].name}</h3><div className="metrics"><div><strong>{distance}.0 <small>km</small></strong><span>Target</span></div><div><strong>{ready ? route.length : "--"}<small> pts</small></strong><span>Street points</span></div><div><strong>{ready ? "yes" : "--"}</strong><span>Walkable</span></div></div><div className="route-tip"><b>◌</b><p><strong>Always review before heading out</strong><br />Routes use public street data and can change. GPX is a route suggestion, not turn-by-turn navigation.</p></div><button className="download" disabled={!ready} onClick={() => { downloadGpx(art[kind].name, route, distance, location); setMessage("GPX downloaded. Review it in your navigation app before starting."); }}>Download GPX <span>↓</span></button></div></div></section>
+    <section className="hero" id="top"><div className="hero-copy"><p className="kicker"><span className="pulse" /> STREET-LEVEL ROUTE ART</p><h1>Search a place.<br /><em>Make your mark.</em></h1><p className="lede">Turn an art prompt into a walkable route on a real map. Search any city, address, or landmark, then inspect and export the result.</p><div className="hero-notes"><span>Live place search</span><span>Street-snapped routes</span><span>GPX export</span></div></div><div className="hero-map"><Map kind={kind} center={center} points={previews} /></div></section>
+    <section className="studio"><div className="studio-heading"><div><p className="section-label">01 / SEARCH & DRAW</p><h2>What do you want<br />to draw today?</h2></div><p>Choose a place, describe the art, and we’ll try to fit it to walkable streets.</p></div><form className="creator-grid" onSubmit={submit} noValidate><div className="idea-panel"><label htmlFor="idea">Art prompt</label><div className="idea-field"><input id="idea" value={idea} onChange={(e) => { setIdea(e.target.value); setError(""); }} aria-invalid={Boolean(error)} placeholder="Try “heart”, “star”, “wave”..." /><button type="submit" aria-label="Generate route" disabled={busy}>↗</button></div>{error && <p className="form-error" role="alert">{error}</p>}<div className="quick-picks"><span>Quick picks</span>{(Object.keys(art) as Art[]).map((item) => <button type="button" className={kind === item ? "picked" : ""} onClick={() => { setKind(item); setIdea(item); setGenerated(null); setError(""); setMessage(""); }} key={item}>{art[item].name}</button>)}</div></div><div className="settings-panel"><div className="setting-title"><label htmlFor="distance">Target distance</label><strong>{distance}.0 km</strong></div><input className="distance" id="distance" type="range" min="3" max="15" value={distance} onChange={(e) => { setDistance(Number(e.target.value)); setGenerated(null); setMessage(""); }} /><div className="range-labels"><span>3 km</span><span>15 km</span></div><div className="location"><span className="pin">◎</span><div><label htmlFor="location">SEARCH ON THE MAP</label><input id="location" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="City, address, or landmark" /></div></div><button className="primary" type="submit" disabled={busy}>{busy ? "Finding streets…" : ready ? "Update my route" : "Generate walkable route"}<span>→</span></button><p className="token-note">Routing is secured server-side; no provider key is exposed in your browser.</p></div></form></section>
+    <section className="result" id="routes"><div className="result-top"><div><p className="section-label">02 / YOUR ROUTE</p><h2>{ready ? "Your route is ready." : "Ready when you are."}</h2></div><p>{ready ? `We fitted ${art[resultKind].name.toLowerCase()} to streets near ${resultLocation} for a ${generated.target} km target.` : "Search a location and choose an art prompt to generate a walkable route."}</p></div>{message && <p className="action-message" role="status">{message}</p>}<div className="route-result"><div className="result-map"><Map kind={resultKind} center={center} points={resultPoints} /></div><div className="route-details"><span className="status"><i /> {ready ? "ROUTE READY" : "WAITING FOR YOUR SEARCH"}</span><h3>{art[resultKind].name}</h3><div className="metrics"><div><strong>{resultDistance.toFixed(1)} <small>km</small></strong><span>{ready ? "Actual" : "Target"}</span></div><div><strong>{ready ? resultPoints.length : "--"}<small> pts</small></strong><span>Street points</span></div><div><strong>{ready ? "yes" : "--"}</strong><span>Walkable</span></div></div><div className="route-tip"><b>◌</b><p><strong>Always review before heading out</strong><br />Routes use public street data and can change. GPX is a route suggestion, not turn-by-turn navigation.</p></div><button className="download" disabled={!ready} onClick={() => { downloadGpx(art[resultKind].name, resultPoints, resultDistance, resultLocation); setMessage("GPX downloaded. Review it in your navigation app before starting."); }}>Download GPX <span>↓</span></button></div></div></section>
     <section className="steps" id="how"><p className="section-label">HOW IT WORKS</p><div><h2>Less planning.<br />More stories.</h2><ol><li><span>01</span><p><b>Search a place</b>Use a city, address, or landmark to anchor the map.</p></li><li><span>02</span><p><b>Describe your art</b>Pick a route-art shape and set a target distance.</p></li><li><span>03</span><p><b>Review, then go</b>Inspect the street route, export GPX, and validate it in your navigation app.</p></li></ol></div></section><footer><a className="brand" href="#top"><span className="brand-mark">S</span><span>RouteBuddy</span></a><p>Routes that look like something.</p><span>© 2026 RouteBuddy</span></footer></main>;
 }
