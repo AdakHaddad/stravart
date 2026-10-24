@@ -14,6 +14,12 @@ function routeFeature(points: Point[]) {
   } as const;
 }
 
+const emptyRoute = { type: "FeatureCollection", features: [] } as GeoJSON.FeatureCollection;
+
+function routeData(points: Point[]) {
+  return points.length > 1 ? routeFeature(points) : emptyRoute;
+}
+
 function fitRoute(instance: MapboxMap, points: Point[], duration: number) {
   if (points.length < 2) return;
   const bounds = points.reduce(
@@ -23,13 +29,15 @@ function fitRoute(instance: MapboxMap, points: Point[], duration: number) {
   instance.fitBounds(bounds, { padding: 48, maxZoom: 15, duration });
 }
 
-export function RouteMapCanvas({ center, points }: { center: Point; points: Point[] }) {
+export function RouteMapCanvas({ center, points, outline, onPick }: { center: Point; points: Point[]; outline?: Point[]; onPick?: (center: Point) => void }) {
   const element = useRef<HTMLDivElement>(null);
   const map = useRef<MapboxMap | null>(null);
   const loaded = useRef(false);
   const initialCenter = useRef(center);
   const latestCenter = useRef(center);
   const latestPoints = useRef(points);
+  const latestOutline = useRef(outline);
+  const onPickRef = useRef(onPick);
   const [problem, setProblem] = useState<string | null>(null);
 
   useEffect(() => {
@@ -40,10 +48,19 @@ export function RouteMapCanvas({ center, points }: { center: Point; points: Poin
     latestPoints.current = points;
   }, [points]);
 
+  useEffect(() => {
+    latestOutline.current = outline;
+  }, [outline]);
+
+  useEffect(() => {
+    onPickRef.current = onPick;
+  }, [onPick]);
+
   // Create the map exactly once. Center/route updates are applied in the
   // effects below so prop changes never destroy and recreate the map.
   useEffect(() => {
-    if (!element.current || map.current) return;
+    const container = element.current;
+    if (!container || map.current) return;
     const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
     if (!token) {
@@ -59,7 +76,7 @@ export function RouteMapCanvas({ center, points }: { center: Point; points: Poin
     let instance: MapboxMap;
     try {
       instance = new MapboxMap({
-        container: element.current,
+        container,
         style: "mapbox://styles/mapbox/outdoors-v12",
         center: initialCenter.current,
         zoom: 13,
@@ -73,6 +90,13 @@ export function RouteMapCanvas({ center, points }: { center: Point; points: Poin
     }
     map.current = instance;
 
+    const handlePick = (event: MouseEvent) => {
+      if (!onPickRef.current || !(event.target instanceof HTMLCanvasElement)) return;
+      const lngLat = instance.unproject(new mapboxgl.Point(event.offsetX, event.offsetY));
+      onPickRef.current([lngLat.lng, lngLat.lat]);
+    };
+    container.addEventListener("click", handlePick);
+
     instance.on("load", () => {
       loaded.current = true;
       setProblem(null);
@@ -81,7 +105,22 @@ export function RouteMapCanvas({ center, points }: { center: Point; points: Poin
       instance.jumpTo({ center: latestCenter.current });
       instance.addSource("route", {
         type: "geojson",
-        data: routeFeature(latestPoints.current),
+        data: routeData(latestPoints.current),
+      });
+      instance.addSource("target", {
+        type: "geojson",
+        data: routeData(latestOutline.current ?? []),
+      });
+      instance.addLayer({
+        id: "target-line",
+        type: "line",
+        source: "target",
+        paint: {
+          "line-color": "#d8ff40",
+          "line-width": 3,
+          "line-dasharray": [2, 2],
+          "line-opacity": 0.95,
+        },
       });
       instance.addLayer({
         id: "route-outline",
@@ -96,7 +135,7 @@ export function RouteMapCanvas({ center, points }: { center: Point; points: Poin
         paint: { "line-color": "#10221f", "line-width": 6, "line-opacity": 0.92 },
       });
       instance.resize();
-      fitRoute(instance, latestPoints.current, 0);
+      fitRoute(instance, [...latestPoints.current, ...(latestOutline.current ?? [])], 0);
     });
     instance.on("error", (event) => {
       const detail = (event as { error?: { message?: string } })?.error?.message;
@@ -108,9 +147,10 @@ export function RouteMapCanvas({ center, points }: { center: Point; points: Poin
     const observer = new ResizeObserver(() => {
       if (map.current) map.current.resize();
     });
-    if (element.current) observer.observe(element.current);
+    observer.observe(container);
     const timer = window.setTimeout(() => instance.resize(), 300);
     return () => {
+      container.removeEventListener("click", handlePick);
       window.clearTimeout(timer);
       observer.disconnect();
       loaded.current = false;
@@ -129,12 +169,14 @@ export function RouteMapCanvas({ center, points }: { center: Point; points: Poin
   useEffect(() => {
     if (!loaded.current || !map.current) return;
     const source = map.current.getSource("route") as GeoJSONSource | undefined;
-    source?.setData(routeFeature(points));
-    fitRoute(map.current, points, 600);
-  }, [points]);
+    source?.setData(routeData(points));
+    const target = map.current.getSource("target") as GeoJSONSource | undefined;
+    target?.setData(routeData(outline ?? []));
+    fitRoute(map.current, [...points, ...(outline ?? [])], 600);
+  }, [points, outline]);
 
   return (
-    <div className="map-canvas" ref={element} aria-label="Interactive Mapbox route map">
+    <div className={onPick ? "map-canvas pickable" : "map-canvas"} ref={element} aria-label="Interactive Mapbox route map">
       {problem ? (
         <div
           style={{

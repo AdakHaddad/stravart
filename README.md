@@ -1,4 +1,4 @@
-RouteBuddy turns a location and an art prompt into a walkable GPX route. Place search uses Photon (OpenStreetMap data), with OpenRouteService (ORS) Pelias as a fallback; pedestrian routing uses ORS. Both run server-side, so routes are generated from real map data instead of fixed demo coordinates.
+RouteBuddy turns a location and an art prompt into a walkable GPX route. Place search returns ranked suggestions and reverse-geocodes map clicks using Photon (OpenStreetMap data), with OpenRouteService (ORS) Pelias as a fallback; pedestrian routing uses ORS. Both run server-side, so routes are generated from real map data instead of fixed demo coordinates. Route art includes cat (with tail), cat face, heart, star, flower, bolt, and wave.
 
 ## Production configuration
 
