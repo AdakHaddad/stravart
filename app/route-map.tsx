@@ -5,6 +5,7 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import { useEffect, useRef, useState } from "react";
 
 type Point = [number, number];
+export type MapBounds = { south: number; west: number; north: number; east: number };
 
 function routeFeature(points: Point[]) {
   return {
@@ -29,15 +30,17 @@ function fitRoute(instance: MapboxMap, points: Point[], duration: number) {
   instance.fitBounds(bounds, { padding: 48, maxZoom: 15, duration });
 }
 
-export function RouteMapCanvas({ center, points, outline, onPick }: { center: Point; points: Point[]; outline?: Point[]; onPick?: (center: Point) => void }) {
+export function RouteMapCanvas({ center, points, outline, onPick, interactive = false, onViewportChange }: { center: Point; points: Point[]; outline?: Point[]; onPick?: (center: Point) => void; interactive?: boolean; onViewportChange?: (bounds: MapBounds) => void }) {
   const element = useRef<HTMLDivElement>(null);
   const map = useRef<MapboxMap | null>(null);
   const loaded = useRef(false);
   const initialCenter = useRef(center);
+  const interactiveOnMount = useRef(interactive);
   const latestCenter = useRef(center);
   const latestPoints = useRef(points);
   const latestOutline = useRef(outline);
   const onPickRef = useRef(onPick);
+  const onViewportChangeRef = useRef(onViewportChange);
   const [problem, setProblem] = useState<string | null>(null);
 
   useEffect(() => {
@@ -55,6 +58,10 @@ export function RouteMapCanvas({ center, points, outline, onPick }: { center: Po
   useEffect(() => {
     onPickRef.current = onPick;
   }, [onPick]);
+
+  useEffect(() => {
+    onViewportChangeRef.current = onViewportChange;
+  }, [onViewportChange]);
 
   // Create the map exactly once. Center/route updates are applied in the
   // effects below so prop changes never destroy and recreate the map.
@@ -80,7 +87,7 @@ export function RouteMapCanvas({ center, points, outline, onPick }: { center: Po
         style: "mapbox://styles/mapbox/outdoors-v12",
         center: initialCenter.current,
         zoom: 13,
-        interactive: false,
+        interactive: interactiveOnMount.current,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "WebGL is unavailable, so the map cannot render.";
@@ -89,6 +96,7 @@ export function RouteMapCanvas({ center, points, outline, onPick }: { center: Po
       return;
     }
     map.current = instance;
+    if (interactiveOnMount.current) instance.addControl(new mapboxgl.NavigationControl(), "top-right");
 
     const handlePick = (event: MouseEvent) => {
       if (!onPickRef.current || !(event.target instanceof HTMLCanvasElement)) return;
@@ -96,6 +104,12 @@ export function RouteMapCanvas({ center, points, outline, onPick }: { center: Po
       onPickRef.current([lngLat.lng, lngLat.lat]);
     };
     container.addEventListener("click", handlePick);
+    const publishViewport = () => {
+      const bounds = instance.getBounds();
+      if (!bounds) return;
+      onViewportChangeRef.current?.({ south: bounds.getSouth(), west: bounds.getWest(), north: bounds.getNorth(), east: bounds.getEast() });
+    };
+    instance.on("moveend", publishViewport);
 
     instance.on("load", () => {
       loaded.current = true;
@@ -103,6 +117,7 @@ export function RouteMapCanvas({ center, points, outline, onPick }: { center: Po
       // A search can finish before tiles load; apply the latest center once
       // the map exists instead of leaving the initial view in place.
       instance.jumpTo({ center: latestCenter.current });
+      publishViewport();
       instance.addSource("route", {
         type: "geojson",
         data: routeData(latestPoints.current),
@@ -135,7 +150,7 @@ export function RouteMapCanvas({ center, points, outline, onPick }: { center: Po
         paint: { "line-color": "#10221f", "line-width": 6, "line-opacity": 0.92 },
       });
       instance.resize();
-      fitRoute(instance, [...latestPoints.current, ...(latestOutline.current ?? [])], 0);
+      if (!interactiveOnMount.current) fitRoute(instance, [...latestPoints.current, ...(latestOutline.current ?? [])], 0);
     });
     instance.on("error", (event) => {
       const detail = (event as { error?: { message?: string } })?.error?.message;
@@ -145,12 +160,16 @@ export function RouteMapCanvas({ center, points, outline, onPick }: { center: Po
     // The container can measure 0x0 on first mount (fonts/grid not settled
     // yet); resizing on layout changes keeps the canvas from staying blank.
     const observer = new ResizeObserver(() => {
-      if (map.current) map.current.resize();
+      if (map.current) {
+        map.current.resize();
+        publishViewport();
+      }
     });
     observer.observe(container);
-    const timer = window.setTimeout(() => instance.resize(), 300);
+    const timer = window.setTimeout(() => { instance.resize(); publishViewport(); }, 300);
     return () => {
       container.removeEventListener("click", handlePick);
+      instance.off("moveend", publishViewport);
       window.clearTimeout(timer);
       observer.disconnect();
       loaded.current = false;
@@ -172,11 +191,11 @@ export function RouteMapCanvas({ center, points, outline, onPick }: { center: Po
     source?.setData(routeData(points));
     const target = map.current.getSource("target") as GeoJSONSource | undefined;
     target?.setData(routeData(outline ?? []));
-    fitRoute(map.current, [...points, ...(outline ?? [])], 600);
-  }, [points, outline]);
+    if (!interactive) fitRoute(map.current, [...points, ...(outline ?? [])], 600);
+  }, [points, outline, interactive]);
 
   return (
-    <div className={onPick ? "map-canvas pickable" : "map-canvas"} ref={element} aria-label="Interactive Mapbox route map">
+    <div className={`map-canvas${onPick ? " pickable" : ""}${interactive ? " explorable" : ""}`} ref={element} aria-label="Interactive Mapbox route map">
       {problem ? (
         <div
           style={{

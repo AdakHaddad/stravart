@@ -1,12 +1,14 @@
-RouteBuddy turns a location and an art prompt into a walkable GPX route. Place search returns ranked suggestions and reverse-geocodes map clicks using Photon (OpenStreetMap data), with OpenRouteService (ORS) Pelias as a fallback; pedestrian routing uses ORS. Both run server-side, so routes are generated from real map data instead of fixed demo coordinates. Route art includes cat (with tail), cat face, heart, star, flower, bolt, and wave.
+RouteBuddy turns a place or the visible map area plus an art prompt into up to three distinct walkable GPX route options. Leave the art prompt blank to compare all 22 built-in silhouettes and let the street match choose the shape; with a distance range, it samples low, middle, and high lengths. Place search returns ranked suggestions and reverse-geocodes map clicks using Photon (OpenStreetMap data), with OpenRouteService (ORS) Pelias as a fallback. Route search downloads nearby walkable streets from OpenStreetMap's Overpass API, searches up to 217 combinations of rotation, scale, placement, and length against that street graph, and favors closed loops for closed shapes. Each candidate is scored against its own target length. Area searches stay within the visible map bounds and rank candidates from across that area. Shape discovery graph-searches up to one candidate per silhouette; prompt-based searches keep the smaller search budget. It falls back to ORS directions when graph search is unavailable. The local prompt interpreter supports a curated set of subjects and two-shape compositions without an AI service; generic cat prompts compare six styles: cat with tail, side profile, raised tail, low walking, sitting, and cat face. Unknown subjects get a clearly labeled abstract line instead of a library-only error.
+
+Three cat silhouettes are adapted and simplified from drawings 5438790044745728, 4888094618681344, and 5726549275836416 in Google's [Quick, Draw! Dataset](https://github.com/googlecreativelab/quickdraw-dataset). The dataset is licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 ## Production configuration
 
-Create an ORS API key and set `ORS_API_KEY` in your hosting provider's server-side environment settings. Do not prefix it with `NEXT_PUBLIC_`, commit a token, or create an `.env` file. RouteBuddy proxies ORS through same-origin Route Handlers, so the key never reaches a browser bundle.
+For ORS fallback routing and place-search fallback, create an ORS API key and set `ORS_API_KEY` in your hosting provider's server-side environment settings. Do not prefix it with `NEXT_PUBLIC_`, commit a token, or create an `.env` file. RouteBuddy proxies ORS through same-origin Route Handlers, so the key never reaches a browser bundle.
 
 For the interactive map, provide your Mapbox public token via `NEXT_PUBLIC_MAPBOX_TOKEN` or `MAPBOX_PUBLIC_TOKEN`.
 
-Without ORS, route generation returns a configuration error while Photon place search keeps working. Without a Mapbox token, the map falls back to a static art preview. No credential is exposed in either case.
+Graph search uses the public Overpass API and needs no credential. Requests are cached in memory for 30 minutes per running server instance; for sustained traffic, use a hosted or cached OpenStreetMap graph instead of relying on public Overpass capacity. If graph search is unavailable, route generation falls back to ORS and therefore needs `ORS_API_KEY`. Without a Mapbox token, the map falls back to a static art preview. No credential is exposed to the browser.
 
 ## Getting Started
 
